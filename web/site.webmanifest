@@ -1,0 +1,8 @@
+{
+  "name": "EQUIDX AI",
+  "short_name": "EQUIDX",
+  "description": "Research prototype AI-powered biosensor diagnostics platform.",
+  "theme_color": "#0B1210",
+  "background_color": "#0B1210",
+  "display": "standalone"
+}
