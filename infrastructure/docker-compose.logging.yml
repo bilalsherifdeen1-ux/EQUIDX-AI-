@@ -1,0 +1,29 @@
+# Standalone ELK/OpenSearch stack for log aggregation. In the root
+# docker-compose.yml, opensearch + opensearch-dashboards are already
+# included for convenience; this file adds Logstash/Filebeat-style
+# ingestion if you want a fuller ELK-style pipeline instead of shipping
+# straight from stdout collectors.
+version: "3.9"
+services:
+  logstash:
+    image: opensearchproject/logstash-oss-with-opensearch-output-plugin:8.9.0
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    ports: ["5044:5044"]
+    environment:
+      - OPENSEARCH_HOST=opensearch:9200
+    depends_on: [opensearch]
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.9.0
+    user: root
+    volumes:
+      - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [logstash]
+
+networks:
+  default:
+    name: equidx-ai_default
+    external: true
