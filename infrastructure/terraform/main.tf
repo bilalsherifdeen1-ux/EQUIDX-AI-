@@ -1,81 +1,75 @@
-# EQUIDX AI — root Terraform configuration (AWS reference implementation).
-# Provisions the networking, EKS cluster, and managed RDS Postgres that the
-# infrastructure/k8s manifests deploy onto. Adapt provider/modules for GCP
-# or Azure as needed — module interfaces are kept intentionally small.
+# Minimal EKS cluster module with a single managed node group. For a real
+# deployment, consider the upstream `terraform-aws-modules/eks/aws` module
+# instead of hand-rolling this — kept explicit here for readability.
 
-terraform {
-  required_version = ">= 1.7"
-  required_providers {
-    aws = { source = "hashicorp/aws", version = "~> 5.0" }
+resource "aws_iam_role" "cluster" {
+  name = "equidx-${var.environment}-eks-cluster"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "eks.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "cluster_policy" {
+  role       = aws_iam_role.cluster.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
+
+resource "aws_eks_cluster" "this" {
+  name     = "equidx-${var.environment}"
+  role_arn = aws_iam_role.cluster.arn
+  version  = var.cluster_version
+
+  vpc_config {
+    subnet_ids = var.subnet_ids
   }
 
-  backend "s3" {
-    bucket = "equidx-ai-terraform-state"
-    key    = "equidx-ai/terraform.tfstate"
-    region = "us-east-1"
+  depends_on = [aws_iam_role_policy_attachment.cluster_policy]
+}
+
+resource "aws_iam_role" "node" {
+  name = "equidx-${var.environment}-eks-node"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "node_worker" {
+  role       = aws_iam_role.node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "node_cni" {
+  role       = aws_iam_role.node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+
+resource "aws_iam_role_policy_attachment" "node_ecr" {
+  role       = aws_iam_role.node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+resource "aws_eks_node_group" "default" {
+  cluster_name    = aws_eks_cluster.this.name
+  node_group_name = "equidx-${var.environment}-default"
+  node_role_arn   = aws_iam_role.node.arn
+  subnet_ids      = var.subnet_ids
+  instance_types  = var.node_instance_types
+
+  scaling_config {
+    desired_size = var.min_nodes
+    min_size     = var.min_nodes
+    max_size     = var.max_nodes
   }
-}
 
-provider "aws" {
-  region = var.aws_region
-}
-
-module "vpc" {
-  source       = "./modules/vpc"
-  environment  = var.environment
-  cidr_block   = var.vpc_cidr
-  az_count     = 3
-}
-
-module "eks" {
-  source          = "./modules/eks"
-  environment     = var.environment
-  vpc_id          = module.vpc.vpc_id
-  subnet_ids      = module.vpc.private_subnet_ids
-  cluster_version = var.kubernetes_version
-  node_instance_types = var.node_instance_types
-  min_nodes       = var.min_nodes
-  max_nodes       = var.max_nodes
-}
-
-module "rds" {
-  source            = "./modules/rds"
-  environment       = var.environment
-  vpc_id            = module.vpc.vpc_id
-  subnet_ids        = module.vpc.private_subnet_ids
-  db_name           = "equidx"
-  db_username       = "equidx"
-  instance_class    = var.rds_instance_class
-  allocated_storage = var.rds_allocated_storage
-}
-
-resource "aws_s3_bucket" "uploads" {
-  bucket = "equidx-ai-uploads-${var.environment}"
-
-  tags = {
-    Project     = "equidx-ai"
-    Environment = var.environment
-    Purpose     = "biosensor-raw-signal-and-file-uploads"
-  }
-}
-
-resource "aws_s3_bucket_versioning" "uploads" {
-  bucket = aws_s3_bucket.uploads.id
-  versioning_configuration { status = "Enabled" }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
-  bucket = aws_s3_bucket.uploads.id
-  rule {
-    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
-  }
-}
-
-resource "aws_elasticache_cluster" "redis" {
-  cluster_id           = "equidx-redis-${var.environment}"
-  engine               = "redis"
-  node_type            = var.redis_node_type
-  num_cache_nodes      = 1
-  parameter_group_name = "default.redis7"
-  subnet_group_name    = module.vpc.elasticache_subnet_group_name
+  depends_on = [aws_iam_role_policy_attachment.node_worker, aws_iam_role_policy_attachment.node_cni]
 }
