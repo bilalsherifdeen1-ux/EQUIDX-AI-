@@ -1,0 +1,37 @@
+site_name: EQUIDX AI Documentation
+site_description: Research/prototype AI-powered biosensor diagnostics platform
+repo_url: https://github.com/equidx-ai/equidx-ai
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: teal
+      accent: teal
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Disclaimer: disclaimer.md
+  - Architecture: architecture.md
+  - Installation: installation.md
+  - Developer Guide: developer-guide.md
+  - Deployment Guide: deployment.md
+  - API Reference: api-reference.md
+  - Contributing: contributing.md
+  - Roadmap: roadmap.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight
+  - tables
+
+plugins:
+  - search
