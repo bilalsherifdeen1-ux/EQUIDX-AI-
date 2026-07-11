@@ -1,0 +1,40 @@
+# Local/dev-cluster Postgres via StatefulSet. In production, prefer a
+# managed database (see infrastructure/terraform/modules/rds) instead of
+# running stateful Postgres on the cluster.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: equidx
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector: { matchLabels: { app: postgres } }
+  template:
+    metadata: { labels: { app: postgres } }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports: [{ containerPort: 5432 }]
+          env:
+            - { name: POSTGRES_USER, value: equidx }
+            - { name: POSTGRES_DB, value: equidx }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: equidx-secrets, key: POSTGRES_PASSWORD } }
+          volumeMounts: [{ name: pgdata, mountPath: /var/lib/postgresql/data }]
+  volumeClaimTemplates:
+    - metadata: { name: pgdata }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 20Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: equidx
+spec:
+  clusterIP: None
+  selector: { app: postgres }
+  ports: [{ port: 5432 }]
