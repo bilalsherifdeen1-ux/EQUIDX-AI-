@@ -1,0 +1,27 @@
+# Scrape config for all EQUIDX AI services. Each FastAPI service exposes
+# /metrics via prometheus-fastapi-instrumentator.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - alert_rules.yml
+
+scrape_configs:
+  - job_name: "backend"
+    static_configs: [{ targets: ["backend:8000"] }]
+
+  - job_name: "ai-engine"
+    static_configs: [{ targets: ["ai-engine:8100"] }]
+
+  - job_name: "biosensor-simulator"
+    static_configs: [{ targets: ["biosensor-simulator:8200"] }]
+
+  - job_name: "analytics"
+    static_configs: [{ targets: ["analytics:8300"] }]
+
+  - job_name: "mobile-api"
+    static_configs: [{ targets: ["mobile-api:8400"] }]
+
+  - job_name: "prometheus"
+    static_configs: [{ targets: ["localhost:9090"] }]
