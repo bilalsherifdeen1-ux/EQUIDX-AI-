@@ -1,0 +1,30 @@
+version: "3.9"
+# Production overlay: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up`
+# Disables reload/volumes-as-source, sets restart policies. Real deployments
+# should use the Kubernetes manifests in infrastructure/k8s instead.
+services:
+  backend:
+    volumes: []
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    restart: unless-stopped
+  ai-engine:
+    volumes: []
+    command: uvicorn ai_engine.serve:app --host 0.0.0.0 --port 8100 --workers 2
+    restart: unless-stopped
+  biosensor-simulator:
+    volumes: []
+    restart: unless-stopped
+  analytics:
+    volumes: []
+    restart: unless-stopped
+  mobile-api:
+    volumes: []
+    restart: unless-stopped
+  web:
+    volumes: []
+    command: npm run start
+    restart: unless-stopped
+  postgres:
+    restart: unless-stopped
+  redis:
+    restart: unless-stopped
