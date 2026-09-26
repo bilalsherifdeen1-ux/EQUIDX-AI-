@@ -25,3 +25,17 @@ async def test_register_and_login_flow(client):
     )
     assert resp.status_code == 200
     assert "access_token" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_public_registration_cannot_grant_privileged_role(client):
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "self-admin@equidx.ai",
+            "password": "supersecret1",
+            "full_name": "Untrusted User",
+            "role": "admin",
+        },
+    )
+    assert resp.status_code == 403

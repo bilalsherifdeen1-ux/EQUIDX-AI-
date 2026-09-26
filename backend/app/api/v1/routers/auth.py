@@ -7,6 +7,7 @@ from app.application.services.auth_service import AuthService
 from app.core.deps import get_current_user, get_user_repository, CurrentUser
 from app.core.exceptions import AlreadyExistsError, UnauthorizedError
 from app.core.security import create_access_token, decode_token
+from app.domain.entities.user import UserRole
 from app.infrastructure.db.repositories.user_repository import SqlUserRepository
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -14,6 +15,11 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register(payload: UserCreate, user_repo: SqlUserRepository = Depends(get_user_repository)):
+    if payload.role is not UserRole.RESEARCHER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Privileged roles must be assigned by an administrator",
+        )
     service = AuthService(user_repo)
     try:
         user = await service.register(payload.email, payload.password, payload.full_name, payload.role)

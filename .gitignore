@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.venv-*/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+web/next-env.d.ts
+*.tsbuildinfo
+
+# Coverage and local tooling
+.coverage
+htmlcov/
+.ruff_cache/
+.DS_Store

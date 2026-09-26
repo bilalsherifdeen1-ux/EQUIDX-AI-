@@ -128,3 +128,21 @@ def generate_panel(
         readings[name] = float(values[-1])  # last point = settled reading
 
     return {"sample_type": sample_type, "channels": channels_out, "readings": readings}
+
+
+def generate_waveform(
+    sample_type: str, duration_sec: float = 6.0, seed: int | None = None,
+) -> dict:
+    """Return a legacy single-channel view of a generated panel.
+
+    New integrations should use :func:`generate_panel` to receive every raw
+    biomarker channel. This adapter preserves the pre-multichannel API for
+    existing callers and tests without changing the new generation path.
+    """
+    panel = generate_panel(sample_type, duration_sec=duration_sec, seed=seed)
+    first_channel = next(iter(panel["channels"].values()))
+    return {
+        "sample_type": sample_type,
+        "timestamps": first_channel["timestamps"],
+        "values": first_channel["values"],
+    }

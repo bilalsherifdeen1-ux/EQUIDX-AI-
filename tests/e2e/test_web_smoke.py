@@ -10,12 +10,8 @@ playwright install chromium`) and remove the skip marker.
 """
 import pytest
 
-pytest.skip(
-    "E2E browser tests require Playwright + a running stack; see docstring.",
-    allow_module_level=True,
-)
 
-
+@pytest.mark.skip(reason="E2E browser tests require Playwright + a running stack; see docstring.")
 def test_marketing_page_loads_and_shows_disclaimer():
     # from playwright.sync_api import sync_playwright
     # with sync_playwright() as p:

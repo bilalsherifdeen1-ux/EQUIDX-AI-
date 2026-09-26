@@ -6,6 +6,7 @@ FastAPI's dependency system rather than imported ad hoc — this keeps config
 access testable and mockable (Dependency Inversion Principle).
 """
 from functools import lru_cache
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,6 +47,16 @@ class Settings(BaseSettings):
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8400"]
+
+    @model_validator(mode="after")
+    def validate_deployment_security(self) -> "Settings":
+        """Prevent an accidental production deployment with demo defaults."""
+        if self.ENVIRONMENT.lower() in {"production", "prod", "staging"}:
+            if self.SECRET_KEY == "change-me-in-production-please-use-a-long-random-string":
+                raise ValueError("SECRET_KEY must be explicitly configured outside development")
+            if any(origin.startswith("http://localhost") for origin in self.CORS_ORIGINS):
+                raise ValueError("CORS_ORIGINS must not contain localhost outside development")
+        return self
 
 
 @lru_cache
