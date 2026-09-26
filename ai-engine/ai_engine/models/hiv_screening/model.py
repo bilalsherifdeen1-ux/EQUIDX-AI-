@@ -1,30 +1,36 @@
 """
-HIV screening placeholder model — a small PyTorch net over a synthetic
-immunoassay optical-density (OD) ratio.
+HIV screening placeholder model — 3-class PyTorch net mirroring the real
+CDC 2014 two-stage HIV testing algorithm (screen + differentiation),
+including the discordant "refer to NAT" category. See
+ai_engine/datasets/synthetic_data_generator.py for full sourcing.
 
-v0.3.0: fixed the same stateless-normalization bug. A positive flag is
-always framed as "reactive — requires confirmatory testing," matching real
-screening-test reporting conventions and the low-PPV-at-low-prevalence
-reality documented in ai_engine/datasets/synthetic_data_generator.py.
+v0.4.0: rebuilt from single-assay binary to two-assay 3-class. Same
+stateful-scaler fix as the other domains.
 """
 from __future__ import annotations
 
 import numpy as np
 import torch
 import torch.nn as nn
-from sklearn.metrics import accuracy_score, f1_score, recall_score, roc_auc_score
+from sklearn.metrics import accuracy_score, f1_score, recall_score
 
 from ai_engine.common.base import BaseDiagnosticModel, EvaluationResult, InferenceResult
 from ai_engine.preprocessing.signal_preprocessing import FittedScaler
 
+LABELS = {
+    0: "non_reactive",
+    1: "reactive_concordant_recommend_clinical_confirmation",
+    2: "reactive_discordant_recommend_NAT",
+}
 
-class _ODClassifierNet(nn.Module):
+
+class _TwoAssayNet(nn.Module):
     def __init__(self):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(1, 8), nn.ReLU(),
-            nn.Linear(8, 8), nn.ReLU(),
-            nn.Linear(8, 1),
+            nn.Linear(2, 16), nn.ReLU(),
+            nn.Linear(16, 16), nn.ReLU(),
+            nn.Linear(16, 3),  # 3-class logits
         )
 
     def forward(self, x):
@@ -33,23 +39,21 @@ class _ODClassifierNet(nn.Module):
 
 class HIVScreeningModel(BaseDiagnosticModel):
     name = "hiv-screening-torch-placeholder"
-    version = "0.3.0"
+    version = "0.4.0"
 
     def __init__(self):
-        self.net = _ODClassifierNet()
+        self.net = _TwoAssayNet()
         self.scaler = FittedScaler()
         self._fitted = False
 
     def preprocess(self, raw_signal: np.ndarray) -> np.ndarray:
-        X = raw_signal.reshape(-1, 1) if raw_signal.ndim == 1 else raw_signal
-        return self.scaler.transform(X)
+        return self.scaler.transform(raw_signal)
 
-    def train(self, X: np.ndarray, y: np.ndarray, epochs: int = 60, lr: float = 0.01) -> None:
-        X2 = X.reshape(-1, 1) if X.ndim == 1 else X
-        Xp = torch.tensor(self.scaler.fit_transform(X2), dtype=torch.float32)
-        yt = torch.tensor(y.reshape(-1, 1), dtype=torch.float32)
+    def train(self, X: np.ndarray, y: np.ndarray, epochs: int = 120, lr: float = 0.01) -> None:
+        Xp = torch.tensor(self.scaler.fit_transform(X), dtype=torch.float32)
+        yt = torch.tensor(y, dtype=torch.long)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=lr)
-        loss_fn = nn.BCEWithLogitsLoss()
+        loss_fn = nn.CrossEntropyLoss()
 
         self.net.train()
         for _ in range(epochs):
@@ -66,14 +70,16 @@ class HIVScreeningModel(BaseDiagnosticModel):
         self.net.eval()
         with torch.no_grad():
             Xp = torch.tensor(self.preprocess(X), dtype=torch.float32)
-            prob_reactive = torch.sigmoid(self.net(Xp)).item()
-
-        flag = "reactive_requires_confirmatory_testing" if prob_reactive >= 0.5 else "non_reactive"
-        findings = {"od_ratio": round(float(X[0][0]), 3), "flag": flag}
-        confidence = prob_reactive if flag.startswith("reactive") else 1 - prob_reactive
+            proba = torch.softmax(self.net(Xp), dim=1).numpy()[0]
+        pred = int(np.argmax(proba))
+        findings = {
+            "ag_ab_screen_od_ratio": round(float(X[0][0]), 3),
+            "differentiation_assay_signal": round(float(X[0][1]), 3),
+            "flag": LABELS[pred],
+        }
         return InferenceResult(
             findings=findings,
-            confidence_scores={"flag": round(float(confidence), 4)},
+            confidence_scores={"flag": round(float(proba[pred]), 4)},
             model_name=self.name,
             model_version=self.version,
         )
@@ -82,14 +88,13 @@ class HIVScreeningModel(BaseDiagnosticModel):
         self.net.eval()
         with torch.no_grad():
             Xp = torch.tensor(self.preprocess(X), dtype=torch.float32)
-            probs = torch.sigmoid(self.net(Xp)).numpy().flatten()
-        preds = (probs >= 0.5).astype(int)
+            proba = torch.softmax(self.net(Xp), dim=1).numpy()
+        preds = np.argmax(proba, axis=1)
         return EvaluationResult(
             metrics={
                 "accuracy": round(float(accuracy_score(y, preds)), 4),
-                "f1": round(float(f1_score(y, preds, zero_division=0)), 4),
-                "recall_sensitivity": round(float(recall_score(y, preds, zero_division=0)), 4),
-                "roc_auc": round(float(roc_auc_score(y, probs)), 4),
+                "f1_macro": round(float(f1_score(y, preds, average="macro", zero_division=0)), 4),
+                "recall_macro": round(float(recall_score(y, preds, average="macro", zero_division=0)), 4),
             },
             n_samples=len(y),
         )
