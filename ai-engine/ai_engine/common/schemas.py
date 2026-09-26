@@ -7,7 +7,7 @@ from pydantic import BaseModel
 class InferenceRequest(BaseModel):
     sample_type: str
     sample_id: str
-    features: dict[str, float] | None = None  # optional pre-extracted features
+    readings: dict[str, float] | None = None  # raw channel values from biosensor-simulator; omit for synthetic fallback
 
 
 class InferenceResponse(BaseModel):
@@ -16,6 +16,7 @@ class InferenceResponse(BaseModel):
     findings: dict[str, Any]
     confidence_scores: dict[str, float]
     disclaimer: str
+    used_real_readings: bool  # False means the synthetic-fallback path was used, not a real/simulated signal
 
 
 class TrainRequest(BaseModel):
