@@ -1,34 +1,51 @@
 """
-HbA1c placeholder model — XGBoost classifier over synthetic HbA1c% and
-eAG-derived estimated average glucose, predicting a research-only band.
+HbA1c placeholder model — 4-class XGBoost classifier over independently
+measured HbA1c% and fasting glucose, including a genuine "discordant"
+category (ADA-documented: the two diagnostic criteria can disagree, and
+the protocol is to repeat the abnormal test, not silently pick one).
 
-v0.3.0: same stateful-scaler fix as the other domains (was previously
-using the stateless, batch-relative normalize()).
+v0.4.0: rebuilt for real two-measurement discordance (was previously a
+single deterministic eAG transform). Same stateful-scaler fix as the
+other domains.
 """
 from __future__ import annotations
 
 import numpy as np
 import xgboost as xgb
-from sklearn.metrics import accuracy_score, f1_score, recall_score, roc_auc_score
+from sklearn.metrics import accuracy_score, f1_score, recall_score
 
 from ai_engine.common.base import BaseDiagnosticModel, EvaluationResult, InferenceResult
 from ai_engine.preprocessing.signal_preprocessing import FittedScaler
 
-BANDS = {0: "normal", 1: "prediabetic_range", 2: "diabetic_range"}
+BANDS = {
+    0: "concordant_normal",
+    1: "concordant_prediabetic",
+    2: "concordant_diabetic",
+    3: "discordant_recommend_repeat_test",
+}
 
 
-def _band_from_hba1c(hba1c: np.ndarray) -> np.ndarray:
+def _hba1c_band(hba1c: np.ndarray) -> np.ndarray:
     return np.select([hba1c < 5.7, hba1c < 6.5], [0, 1], default=2)
+
+
+def _glucose_band(glucose: np.ndarray) -> np.ndarray:
+    return np.select([glucose < 100, glucose < 126], [0, 1], default=2)
+
+
+def _label(hba1c: np.ndarray, glucose: np.ndarray) -> np.ndarray:
+    hb, gl = _hba1c_band(hba1c), _glucose_band(glucose)
+    return np.where(hb == gl, hb, 3)
 
 
 class HbA1cModel(BaseDiagnosticModel):
     name = "hba1c-xgboost-placeholder"
-    version = "0.3.0"
+    version = "0.4.0"
 
     def __init__(self):
         self.clf = xgb.XGBClassifier(
             n_estimators=200, max_depth=4, learning_rate=0.08,
-            objective="multi:softprob", num_class=3, eval_metric="mlogloss",
+            objective="multi:softprob", num_class=4, eval_metric="mlogloss",
         )
         self.scaler = FittedScaler()
         self._fitted = False
@@ -37,10 +54,11 @@ class HbA1cModel(BaseDiagnosticModel):
         return self.scaler.transform(raw_signal)
 
     def train(self, X: np.ndarray, y: np.ndarray) -> None:
-        hba1c_col = X[:, 0]
-        bands = _band_from_hba1c(hba1c_col)
+        # y passed in is already the 4-class label from the generator;
+        # recomputing from X here as a defensive check that the two agree.
+        labels = _label(X[:, 0], X[:, 1])
         Xp = self.scaler.fit_transform(X)
-        self.clf.fit(Xp, bands)
+        self.clf.fit(Xp, labels)
         self._fitted = True
 
     def predict(self, X: np.ndarray) -> InferenceResult:
@@ -52,7 +70,7 @@ class HbA1cModel(BaseDiagnosticModel):
         raw = X[0]
         findings = {
             "hba1c_percent": round(float(raw[0]), 2),
-            "estimated_average_glucose_mg_dl": round(float(raw[1]), 1),
+            "fasting_glucose_mg_dl": round(float(raw[1]), 1),
             "band": BANDS[band],
         }
         return InferenceResult(
@@ -63,22 +81,16 @@ class HbA1cModel(BaseDiagnosticModel):
         )
 
     def evaluate(self, X: np.ndarray, y: np.ndarray) -> EvaluationResult:
-        bands = _band_from_hba1c(X[:, 0])
+        labels = _label(X[:, 0], X[:, 1])
         Xp = self.preprocess(X)
         preds = self.clf.predict(Xp)
-        proba = self.clf.predict_proba(Xp)
-        try:
-            auc = roc_auc_score(bands, proba, multi_class="ovr")
-        except ValueError:
-            auc = float("nan")
         return EvaluationResult(
             metrics={
-                "accuracy": round(float(accuracy_score(bands, preds)), 4),
-                "f1_macro": round(float(f1_score(bands, preds, average="macro")), 4),
-                "recall_macro": round(float(recall_score(bands, preds, average="macro")), 4),
-                "roc_auc_ovr": round(float(auc), 4) if auc == auc else -1.0,
+                "accuracy": round(float(accuracy_score(labels, preds)), 4),
+                "f1_macro": round(float(f1_score(labels, preds, average="macro")), 4),
+                "recall_macro": round(float(recall_score(labels, preds, average="macro")), 4),
             },
-            n_samples=len(bands),
+            n_samples=len(labels),
         )
 
 
