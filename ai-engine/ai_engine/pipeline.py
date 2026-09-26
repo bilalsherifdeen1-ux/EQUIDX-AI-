@@ -1,9 +1,19 @@
 """
 InferencePipeline — dispatches a sample_type string to the correct
-diagnostic domain model, lazily training (on synthetic data) and caching an
-in-memory instance per domain. In a real deployment, `_get_model` would load
-a persisted, versioned artifact (see BaseDiagnosticModel.save/load) from
-object storage instead of training on the fly.
+diagnostic domain model, lazily training (on synthetic data) and caching
+an in-memory instance per domain.
+
+REBUILT: `run_inference` now actually uses real signal data when it's
+given `readings` (raw per-channel values from biosensor-simulator's
+`generate_panel()["readings"]`) — routed through
+`ai_engine.preprocessing.feature_extraction` so the same derived-feature
+logic (BUN:creatinine ratio, UPCR, corrected calcium) is applied
+identically to what training used. Previously this function ALWAYS
+sampled a fresh synthetic row internally regardless of what was passed
+in — the simulator and the AI engine were never actually connected end to
+end. `readings=None` still falls back to that synthetic-sampling behavior
+(useful for demos without a live device), but it is now the fallback, not
+the only path.
 """
 from __future__ import annotations
 
@@ -11,6 +21,7 @@ import numpy as np
 
 from ai_engine.common.base import InferenceResult
 from ai_engine.datasets.synthetic_data_generator import GENERATORS
+from ai_engine.preprocessing.feature_extraction import extract_features
 from ai_engine.models.blood_chemistry.model import train_and_get_model as train_blood_chemistry
 from ai_engine.models.hba1c.model import train_and_get_model as train_hba1c
 from ai_engine.models.hiv_screening.model import train_and_get_model as train_hiv_screening
@@ -36,14 +47,18 @@ def _get_model(sample_type: str):
     return _model_cache[sample_type]
 
 
-def run_inference(sample_type: str, features: dict[str, float] | None = None) -> InferenceResult:
-    """Runs inference for a given domain. If explicit `features` aren't
-    supplied (typical for this demo, since we don't have a real device
-    feeding real values), a single synthetic feature row is sampled to
-    stand in for a live biosensor reading."""
+def run_inference(sample_type: str, readings: dict[str, float] | None = None) -> InferenceResult:
+    """
+    readings: raw per-channel values from a real (or simulated) biosensor
+    reading, e.g. {"sodium_meq_l": 141.2, "potassium_meq_l": 4.1,
+    "creatinine_mg_dl": 0.9, "bun_mg_dl": 13.5} for blood_chemistry. When
+    provided, this is the actual signal the model scores. When omitted, a
+    synthetic row is sampled instead (demo/fallback mode only — NOT
+    connected to any real or simulated device reading).
+    """
     model = _get_model(sample_type)
-    if features:
-        X = np.array([list(features.values())], dtype=float)
+    if readings:
+        X = extract_features(sample_type, readings)
     else:
         generator = GENERATORS[sample_type]
         X, _ = generator(n=1)
