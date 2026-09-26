@@ -1,59 +1,43 @@
 """
-EQUIDX AI — Biosensor Simulator microservice.
+EQUIDX AI — Biosensor Simulator service.
 
-Generates realistic synthetic biosensor signals over REST (single waveform
-pull) and WebSocket (live streaming, e.g. for a device-connection demo in
-the dashboard). No real hardware or patient data is involved anywhere here.
+REBUILT: exposes one waveform per raw biomarker channel per domain
+(see device_profiles.py), not one generic signal per sample_type. Adds
+POST /api/v1/panel, the endpoint the backend now calls before every
+diagnostic report — see backend's report_service.py / ai_engine_client.py
+for the consumer side of this wiring.
 """
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from prometheus_fastapi_instrumentator import Instrumentator
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
 
-from simulator.device_profiles import PROFILES
-from simulator.signal_generator import generate_waveform
+from simulator.device_profiles import DOMAIN_CHANNELS
+from simulator.signal_generator import generate_panel
 
 app = FastAPI(
     title="EQUIDX AI — Biosensor Simulator",
-    description="Generates synthetic biosensor signals for demo/prototype purposes only.",
-    version="0.1.0",
+    description="Synthetic multi-channel biosensor signal generator. Not a physical device.",
+    version="0.2.0",
 )
-Instrumentator().instrument(app).expose(app, endpoint="/metrics")
-
-
-class WaveformRequest(BaseModel):
-    sample_type: str
-    duration_sec: float = 10.0
-    seed: int | None = None
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "equidx-biosensor-simulator"}
+    return {"status": "ok", "service": "equidx-biosensor-simulator", "domains": list(DOMAIN_CHANNELS)}
 
 
-@app.get("/api/v1/devices")
-async def list_devices():
-    return {k: v.name for k, v in PROFILES.items()}
+@app.get("/api/v1/domains")
+async def list_domains():
+    return {domain: list(channels) for domain, channels in DOMAIN_CHANNELS.items()}
 
 
-@app.post("/api/v1/waveform")
-async def waveform(payload: WaveformRequest):
-    return generate_waveform(payload.sample_type, payload.duration_sec, payload.seed)
-
-
-@app.websocket("/ws/stream/{sample_type}")
-async def stream(websocket: WebSocket, sample_type: str):
-    """Streams a new short waveform chunk roughly once a second — a stand-in
-    for a device pushing live readings to the dashboard."""
-    await websocket.accept()
-    import asyncio
-
+@app.post("/api/v1/panel")
+async def panel(sample_type: str, duration_sec: float = 6.0, seed: int | None = None, scenario: str | None = None):
+    """
+    scenario is only meaningful for hiv_screening: None (random, weighted
+    by NAIIS 2018 prevalence), 'non_reactive', 'reactive_concordant', or
+    'reactive_discordant' — lets a demo/QA request a specific case
+    instead of waiting on a random ~1.4% draw.
+    """
     try:
-        tick = 0
-        while True:
-            chunk = generate_waveform(sample_type, duration_sec=1.0, seed=tick)
-            await websocket.send_json(chunk)
-            tick += 1
-            await asyncio.sleep(1.0)
-    except WebSocketDisconnect:
-        pass
+        return generate_panel(sample_type, duration_sec=duration_sec, seed=seed, scenario=scenario)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
