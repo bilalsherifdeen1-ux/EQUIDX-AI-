@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "EQUIDX AI — Research Prototype Biosensor Diagnostics Platform",
+  title: "EQUIDX AI — Auditable Biosensor Research Platform",
   description:
-    "A modular, AI-assisted biosensor diagnostics platform — early-stage research and demonstration only.",
+    "Engineering notes and a modular biosensor AI research platform — synthetic data and research demonstration only.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

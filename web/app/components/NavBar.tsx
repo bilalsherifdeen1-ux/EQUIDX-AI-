@@ -3,6 +3,7 @@ import Link from "next/link";
 const links = [
   { href: "/#platform", label: "Platform" },
   { href: "/#pipeline", label: "AI Pipeline" },
+  { href: "/engineering/equidx-ai", label: "Engineering" },
   { href: "/dashboard", label: "Dashboard" },
 ];
 
